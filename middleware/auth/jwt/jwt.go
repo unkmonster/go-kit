@@ -2,6 +2,7 @@ package jwt
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/go-kratos/kratos/v2/errors"
@@ -39,7 +40,10 @@ var (
 type authKey struct{}
 
 type options struct {
+	// claims
 	claims func() jwt.Claims
+	// 用于验证 Token
+	keyFunc jwt.Keyfunc
 }
 
 type Option func(*options)
@@ -50,10 +54,17 @@ func WithClaims(f func() jwt.Claims) Option {
 	}
 }
 
+func WithKeyFunc(kf jwt.Keyfunc) Option {
+	return func(o *options) {
+		o.keyFunc = kf
+	}
+}
+
 // Server 服务侧中间件
-// 1. 解析 token 并保存到上下文，但不验证签名
+// 如果提供了 KeyFunc, 则强制验证签名
+// 1. 解析 token 并保存到上下文。如果未指定 keyFunc, 则不验证 token, 请确保 token 来自可信来源，例如网关
 // 2. 通过 metadata 传播 authorization header
-// 请确保 token 来自可信来源，例如网关
+// 无论是否验证 token, 缺少 header 总会返回 ErrMissingToken
 func Server(opts ...Option) middleware.Middleware {
 	claims := jwt.RegisteredClaims{}
 	o := &options{
@@ -63,13 +74,15 @@ func Server(opts ...Option) middleware.Middleware {
 		opt(o)
 	}
 
+	mustVerify := o.keyFunc != nil
+
 	return func(handler middleware.Handler) middleware.Handler {
 		return func(ctx context.Context, req any) (any, error) {
 			if tr, ok := transport.FromServerContext(ctx); ok {
 				authorizationValue := tr.RequestHeader().Get(authorizationKey)
 
 				if authorizationValue == "" {
-					return handler(ctx, req)
+					return nil, ErrMissingJwtToken
 				}
 
 				// 通过 metadata 传播 authorization header
@@ -82,10 +95,22 @@ func Server(opts ...Option) middleware.Middleware {
 				}
 
 				// 解析 token string
-				jwtToken := auths[1]
-				tokenInfo, _, err := jwt.NewParser().ParseUnverified(jwtToken, o.claims())
+				tokenString := auths[1]
+
+				var tokenInfo *jwt.Token
+				var err error
+
+				if mustVerify {
+					tokenInfo, err = jwt.ParseWithClaims(tokenString, o.claims(), o.keyFunc)
+				} else {
+					tokenInfo, _, err = jwt.NewParser().ParseUnverified(tokenString, o.claims())
+				}
 				if err != nil {
-					return nil, errors.Unauthorized(reason, err.Error())
+					return nil, errors.Unauthorized(reason, fmt.Sprintf("parse token: %s", err))
+				}
+
+				if mustVerify && !tokenInfo.Valid {
+					return nil, ErrTokenInvalid
 				}
 
 				// 存入上下文
@@ -107,8 +132,3 @@ func FromContext(ctx context.Context) (token jwt.Claims, ok bool) {
 	token, ok = ctx.Value(authKey{}).(jwt.Claims)
 	return
 }
-
-// func TokenStringFromContext(ctx context.Context) (string, bool) {
-// 	token, ok := ctx.Value(tokenStrKey{}).(string)
-// 	return token, ok
-// }
