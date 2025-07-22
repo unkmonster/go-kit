@@ -44,6 +44,7 @@ type options struct {
 	claims func() jwt.Claims
 	// 用于验证 Token
 	keyFunc jwt.Keyfunc
+	prevent bool
 }
 
 type Option func(*options)
@@ -54,21 +55,26 @@ func WithClaims(f func() jwt.Claims) Option {
 	}
 }
 
+// WithKeyFunc 如果未指定此选项表示不验证 token 签名，
+// 请确保 token 来自可信来源，例如网关
 func WithKeyFunc(kf jwt.Keyfunc) Option {
 	return func(o *options) {
 		o.keyFunc = kf
 	}
 }
 
-// Server 服务侧中间件
-// 如果提供了 KeyFunc, 则强制验证签名
-// 1. 解析 token 并保存到上下文。如果未指定 keyFunc, 则不验证 token, 请确保 token 来自可信来源，例如网关
-// 2. 通过 metadata 传播 authorization header
-// 无论是否验证 token, 缺少 header 总会返回 ErrMissingToken
+// WithPreventReq 指示当缺少 Token / 签名验证失败时是否阻止请求
+func WithPreventReq(prevent bool) Option {
+	return func(o *options) {
+		o.prevent = prevent
+	}
+}
+
 func Server(opts ...Option) middleware.Middleware {
 	claims := jwt.RegisteredClaims{}
 	o := &options{
-		claims: func() jwt.Claims { return claims },
+		claims:  func() jwt.Claims { return claims },
+		prevent: true,
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -82,6 +88,9 @@ func Server(opts ...Option) middleware.Middleware {
 				authorizationValue := tr.RequestHeader().Get(authorizationKey)
 
 				if authorizationValue == "" {
+					if !o.prevent {
+						return handler(ctx, req)
+					}
 					return nil, ErrMissingJwtToken
 				}
 
@@ -91,6 +100,9 @@ func Server(opts ...Option) middleware.Middleware {
 				// 判断是否为 Bearer token
 				auths := strings.SplitN(authorizationValue, " ", 2)
 				if len(auths) != 2 || !strings.EqualFold(auths[0], bearerWord) {
+					if !o.prevent {
+						return handler(ctx, req)
+					}
 					return nil, ErrMissingJwtToken
 				}
 
@@ -106,10 +118,16 @@ func Server(opts ...Option) middleware.Middleware {
 					tokenInfo, _, err = jwt.NewParser().ParseUnverified(tokenString, o.claims())
 				}
 				if err != nil {
+					if !o.prevent {
+						return handler(ctx, req)
+					}
 					return nil, errors.Unauthorized(reason, fmt.Sprintf("parse token: %s", err))
 				}
 
 				if mustVerify && !tokenInfo.Valid {
+					if !o.prevent {
+						return handler(ctx, req)
+					}
 					return nil, ErrTokenInvalid
 				}
 
