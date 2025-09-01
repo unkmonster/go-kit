@@ -27,24 +27,48 @@ type options struct {
 
 type Option func(opts *options)
 
-func parseProxy(proxy string) (*net.IPNet, error) {
+// parseProxy 解析一个 host, ip, cidr 到 net.IPNet
+func parseProxy(proxy string) ([]*net.IPNet, error) {
+	cidrStrList := []string{}
+
+	// 解析 IP / host
 	if !strings.Contains(proxy, "/") {
+		ips := []net.IP{}
 		ip := net.ParseIP(proxy)
 		if ip == nil {
-			return nil, fmt.Errorf("invalid ip addr: %s", proxy)
+			// 尝试处理主机名
+			result, err := net.LookupIP(proxy)
+			if err != nil || len(result) == 0 {
+				return nil, fmt.Errorf("invalid ip/host: %s", proxy)
+			}
+			ips = result
+		} else {
+			ips = append(ips, ip)
 		}
 
-		if ip.To4() != nil {
-			proxy = proxy + "/32"
-		} else {
-			proxy = proxy + "/128"
+		for _, ip := range ips {
+			str := ip.String()
+			if ip.To4() != nil {
+				str = str + "/32"
+			} else {
+				str = str + "/128"
+			}
+			cidrStrList = append(cidrStrList, str)
 		}
+	} else {
+		cidrStrList = append(cidrStrList, proxy)
 	}
-	_, cidr, err := net.ParseCIDR(proxy)
-	if err != nil {
-		return nil, err
+
+	result := []*net.IPNet{}
+	for _, str := range cidrStrList {
+		_, cidr, err := net.ParseCIDR(str)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, cidr)
 	}
-	return cidr, nil
+
+	return result, nil
 }
 
 func isTrustedProxy(options *options, ip net.IP) bool {
@@ -98,7 +122,7 @@ func WithTrustedProxies(proxies []string) Option {
 			if err != nil {
 				panic(fmt.Sprintf("parse proxy error: %s: %v", proxy, err))
 			}
-			results = append(results, cidr)
+			results = append(results, cidr...)
 		}
 		opts.TrustedProxies = results
 	}
