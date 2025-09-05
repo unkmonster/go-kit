@@ -9,13 +9,21 @@ import (
 )
 
 func TestParseProxy(t *testing.T) {
+	anyContain := func(ns []*net.IPNet, ip net.IP) bool {
+		for _, n := range ns {
+			if n.Contains(ip) {
+				return true
+			}
+		}
+		return false
+	}
+
 	tests := []struct {
 		proxy   string
 		contain string
 	}{
 		{
-			proxy:   "localhost",
-			contain: "127.0.0.1",
+			proxy: "localhost",
 		},
 		{
 			proxy:   "0.0.0.0/0",
@@ -31,7 +39,20 @@ func TestParseProxy(t *testing.T) {
 		},
 	}
 
-	for i, test := range tests {
+	t.Run("localhost", func(t *testing.T) {
+		test := tests[0]
+		result, err := parseProxy(test.proxy)
+		require.NoError(t, err)
+		require.NotEmpty(t, result)
+
+		require.True(
+			t,
+			anyContain(result, net.ParseIP("127.0.0.1")) ||
+				anyContain(result, net.ParseIP("::1")),
+		)
+	})
+
+	for i, test := range tests[1:] {
 		t.Run(strconv.FormatInt(int64(i), 10), func(t *testing.T) {
 			result, err := parseProxy(test.proxy)
 			require.NoError(t, err)
@@ -41,7 +62,7 @@ func TestParseProxy(t *testing.T) {
 			if ip == nil {
 				panic("input contain is invalid ip")
 			}
-			require.True(t, result[0].Contains(ip), "%s not contain %s", result[0], ip)
+			require.True(t, anyContain(result, ip))
 		})
 	}
 }
