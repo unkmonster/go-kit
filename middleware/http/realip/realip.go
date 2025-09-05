@@ -20,14 +20,17 @@ var (
 type realIpKey struct{}
 
 type options struct {
+	// 受信任的代理，仅受信任的代理的 xff 头是可信的
 	TrustedProxies []*net.IPNet
-	TrustedHeader  string
-	IpHeaders      []string
+	// 直接配置受信任的 header, 优先级高于可信代理
+	TrustedHeader string
+	// xff headers
+	IpHeaders []string
 }
 
 type Option func(opts *options)
 
-// parseProxy 解析一个 host, ip, cidr 到 net.IPNet
+// parseProxy parse a host name/ip addr/cidr to *net.IPNet
 func parseProxy(proxy string) ([]*net.IPNet, error) {
 	cidrStrList := []string{}
 
@@ -84,9 +87,9 @@ func isTrustedProxy(options *options, ip net.IP) bool {
 	return false
 }
 
-// validateIpHeader 反向顺序验证 ip 头，
-// 返回从右往左第一个不信任的 IP, 或从右到左第一个无效 IP 的右一个 IP 作为 client ip
-func validateIpHeader(options *options, value string) string {
+// getClientIp 反向顺序验证 ip 头，
+// 返回 ip header 中从右往左第一个不信任的 IP 作为 client IP
+func getClientIp(options *options, value string) string {
 	if value == "" {
 		return ""
 	}
@@ -94,15 +97,10 @@ func validateIpHeader(options *options, value string) string {
 	var result string
 	ips := strings.Split(value, ",")
 	for i := len(ips) - 1; i >= 0; i-- {
-		ipStr := strings.TrimSpace(ips[i])
-		ip := net.ParseIP(ipStr)
-		if ip == nil {
+		result = strings.TrimSpace(ips[i])
+		if !isTrustedProxy(options, net.ParseIP(result)) {
 			break
 		}
-		if i != 0 && !isTrustedProxy(options, ip) {
-			break
-		}
-		result = ipStr
 	}
 	return result
 }
@@ -172,9 +170,10 @@ func Server(logger log.Logger, opts ...Option) middleware.Middleware {
 					return nil, ErrInvalidRemoteAddr
 				}
 
+				// 如果下游属于可信代理，尝试从 xff 头获取 client ip
 				if isTrustedProxy(options, remoteIp) {
 					for _, headerName := range options.IpHeaders {
-						value := validateIpHeader(options, httpreq.Header.Get(headerName))
+						value := getClientIp(options, httpreq.Header.Get(headerName))
 						if value != "" {
 							ctx = context.WithValue(ctx, realIpKey{}, value)
 							return h(ctx, req)
