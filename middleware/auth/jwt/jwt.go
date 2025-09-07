@@ -127,7 +127,7 @@ func Server(opts ...Option) middleware.Middleware {
 					var keyFunc jwt.Keyfunc
 					if o.keyFunc2 != nil {
 						keyFunc = func(t *jwt.Token) (interface{}, error) {
-							return o.keyFunc2(ctx, tokenInfo)
+							return o.keyFunc2(ctx, t)
 						}
 					} else if o.keyFunc != nil {
 						keyFunc = o.keyFunc
