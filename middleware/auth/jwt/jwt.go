@@ -12,6 +12,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+type Claims = jwt.Claims
+
 const (
 
 	// bearerWord the bearer key word for authorization
@@ -39,12 +41,15 @@ var (
 
 type authKey struct{}
 
+type KeyFunc func(ctx context.Context, token *jwt.Token) (any, error)
+
 type options struct {
 	// claims
 	claims func() jwt.Claims
 	// 用于验证 Token
-	keyFunc jwt.Keyfunc
-	prevent bool
+	keyFunc  jwt.Keyfunc
+	prevent  bool
+	keyFunc2 KeyFunc
 }
 
 type Option func(*options)
@@ -60,6 +65,12 @@ func WithClaims(f func() jwt.Claims) Option {
 func WithKeyFunc(kf jwt.Keyfunc) Option {
 	return func(o *options) {
 		o.keyFunc = kf
+	}
+}
+
+func WithKeyFunc2(kf KeyFunc) Option {
+	return func(o *options) {
+		o.keyFunc2 = kf
 	}
 }
 
@@ -113,7 +124,15 @@ func Server(opts ...Option) middleware.Middleware {
 				var err error
 
 				if mustVerify {
-					tokenInfo, err = jwt.ParseWithClaims(tokenString, o.claims(), o.keyFunc)
+					var keyFunc jwt.Keyfunc
+					if o.keyFunc2 != nil {
+						keyFunc = func(t *jwt.Token) (interface{}, error) {
+							return o.keyFunc2(ctx, tokenInfo)
+						}
+					} else if o.keyFunc != nil {
+						keyFunc = o.keyFunc
+					}
+					tokenInfo, err = jwt.ParseWithClaims(tokenString, o.claims(), keyFunc)
 				} else {
 					tokenInfo, _, err = jwt.NewParser().ParseUnverified(tokenString, o.claims())
 				}
