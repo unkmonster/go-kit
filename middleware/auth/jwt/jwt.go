@@ -91,7 +91,7 @@ func Server(opts ...Option) middleware.Middleware {
 		opt(o)
 	}
 
-	mustVerify := o.keyFunc != nil
+	mustVerify := o.keyFunc != nil || o.keyFunc2 != nil
 
 	return func(handler middleware.Handler) middleware.Handler {
 		return func(ctx context.Context, req any) (any, error) {
