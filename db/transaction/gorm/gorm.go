@@ -25,7 +25,7 @@ func (t *Transaction) DBFromContext(ctx context.Context) any {
 	if db, ok := ctx.Value(txKey{}).(*gorm.DB); ok {
 		return db
 	}
-	return t.db
+	return t.db.WithContext(ctx)
 }
 
 // Exec implements transaction.Transaction.
