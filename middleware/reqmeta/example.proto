@@ -19,7 +19,7 @@ message ExampleRequest {
 			{
 				name: "x-resource-id-field"
 				value: {
-					yaml: "id2"
+					yaml: "id"
 				}
 			},
             {
