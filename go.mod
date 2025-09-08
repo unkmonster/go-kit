@@ -1,13 +1,15 @@
 module github.com/unkmonster/go-kit
 
-go 1.22.5
+go 1.24.6
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/go-kratos/kratos/v2 v2.8.4
 	github.com/golang-jwt/jwt/v5 v5.1.0
+	github.com/google/gnostic v0.7.1
+	github.com/google/gnostic-models v0.7.0
 	github.com/stretchr/testify v1.10.0
-	google.golang.org/protobuf v1.33.0
+	google.golang.org/protobuf v1.36.7
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/gorm v1.30.1
 )
@@ -30,10 +32,11 @@ require (
 	go.opentelemetry.io/otel v1.24.0 // indirect
 	go.opentelemetry.io/otel/metric v1.24.0 // indirect
 	go.opentelemetry.io/otel/trace v1.24.0 // indirect
-	golang.org/x/sync v0.9.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.18.0 // indirect
-	golang.org/x/text v0.20.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240102182953-50ed04b92917 // indirect
+	golang.org/x/text v0.28.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250811160224-6b04f9b4fc78 // indirect
 	google.golang.org/grpc v1.61.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package example;
+
+import "openapi/v3/annotations.proto";
+
+option go_package = "go-kit/middleware/reqmeta";
+
+
+message ExampleRequest {
+  option (openapi.v3.schema) = {
+		specification_extension: [
+			{
+				name: "x-resource-type"
+				value: {
+					yaml: "order"
+				}
+			},
+			{
+				name: "x-resource-id-field"
+				value: {
+					yaml: "id2"
+				}
+			},
+            {
+				name: "x-action"
+				value: {
+					yaml: "REMOVE"
+				}
+			},
+			{
+				name: "x-self-hold"
+				value: {
+					yaml: "true"
+				}
+			},
+			{
+				name: "x-resource-collection"
+				value: {
+					yaml: "false"
+				}
+			}
+		]
+  	};
+
+    int64 id = 1;
+}
+
+message MissingIdField {
+  option (openapi.v3.schema) = {
+		specification_extension: [
+			{
+				name: "x-resource-type"
+				value: {
+					yaml: "order"
+				}
+			},
+			{
+				name: "x-resource-id-field"
+				value: {
+					yaml: "id"
+				}
+			},
+            {
+				name: "x-action"
+				value: {
+					yaml: "REMOVE"
+				}
+			},
+			{
+				name: "x-self-hold"
+				value: {
+					yaml: "true"
+				}
+			},
+			{
+				name: "x-resource-collection"
+				value: {
+					yaml: "false"
+				}
+			}
+		]
+  	};
+}
