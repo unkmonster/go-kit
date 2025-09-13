@@ -8,7 +8,8 @@ import (
 
 func TestParseMessage(t *testing.T) {
 	msg := &ExampleRequest{
-		Id: 5,
+		Id:     5,
+		UserId: 250,
 	}
 
 	res, err := parseMessage(msg)
@@ -19,6 +20,8 @@ func TestParseMessage(t *testing.T) {
 	require.Equal(t, "REMOVE", res.Action)
 	require.True(t, res.IsSelfHold)
 	require.False(t, res.IsCollection)
+	require.Equal(t, "user", res.OwnerType)
+	require.Equal(t, msg.UserId, res.OwnerId)
 }
 
 func TestMissingIdField(t *testing.T) {

@@ -13,11 +13,20 @@ import (
 )
 
 const (
-	resourceTypeKey       = "x-resource-type"
-	resourceIdFieldKey    = "x-resource-id-field"
-	actionKey             = "x-action"
-	selfHoldKey           = "x-self-hold"
+	// 请求资源的类型
+	resourceTypeKey = "x-resource-type"
+	// 持有资源 ID 的字段名称
+	resourceIdFieldKey = "x-resource-id-field"
+	// 操作, 如果未指定使用 HTTP 标注方法填充
+	actionKey = "x-resource-action"
+	// 当前资源是否属于请求者
+	selfHoldKey = "x-resource-self-hold"
+	// 是否为资源集合
 	resourceCollectionKey = "x-resource-collection"
+	// 持有 owner ID 的字段名称
+	ownerIdFieldKey = "x-resource-owner-id-field"
+	// owner 类型：user/admin/...
+	ownerTypeKey = "x-resource-owner-type"
 )
 
 type Resource struct {
@@ -26,6 +35,8 @@ type Resource struct {
 	Action       string
 	IsCollection bool
 	IsSelfHold   bool
+	OwnerId      any
+	OwnerType    string
 }
 
 type options struct {
@@ -80,7 +91,11 @@ func parseMessage(msg proto.Message) (Resource, error) {
 	desc := msg.ProtoReflect().Descriptor()
 	schema := proto.GetExtension(desc.Options(), openapi_v3.E_Schema).(*openapi_v3.Schema)
 
-	var resourceIdField string
+	var (
+		resourceIdField string
+		ownerIdField    string
+	)
+
 	result := Resource{}
 	for _, ext := range schema.GetSpecificationExtension() {
 		value := ext.Value.Yaml
@@ -95,6 +110,10 @@ func parseMessage(msg proto.Message) (Resource, error) {
 			result.IsSelfHold = strings.EqualFold("true", value)
 		case resourceCollectionKey:
 			result.IsCollection = strings.EqualFold("true", value)
+		case ownerIdFieldKey:
+			ownerIdField = value
+		case ownerTypeKey:
+			result.OwnerType = value
 		}
 	}
 
@@ -103,7 +122,10 @@ func parseMessage(msg proto.Message) (Resource, error) {
 	if field != nil {
 		result.ResourceId = msgReflect.Get(field).Interface()
 	}
-
+	field = msgReflect.Descriptor().Fields().ByName(protoreflect.Name(ownerIdField))
+	if field != nil {
+		result.OwnerId = msgReflect.Get(field).Interface()
+	}
 	return result, nil
 }
 

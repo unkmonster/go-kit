@@ -4,6 +4,8 @@
 
 - x-resource-type: str 资源类型
 - x-resource-id-field: 持有资源 ID 的字段名称
-- x-action: 对资源的操作，如果未指定，使用 HTTP ACTION
-- x-self-hold: 指示当前资源是否属于自己，比如 GET /users/me
+- x-resource-action: 对资源的操作，如果未指定，使用 HTTP ACTION
+- x-resource-self-hold: 指示当前资源是否属于请求者，比如 GET /users/me
 - x-resource-collection: 目标是否为资源集合
+- x-resource-owner-id-field: 指示持有当前资源的 owner_id 的字段名
+- x-resource-owner_type: 当前资源的拥有者的 entity_type: user/admin/...

@@ -25,6 +25,7 @@ const (
 type ExampleRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -62,6 +63,13 @@ func (*ExampleRequest) Descriptor() ([]byte, []int) {
 func (x *ExampleRequest) GetId() int64 {
 	if x != nil {
 		return x.Id
+	}
+	return 0
+}
+
+func (x *ExampleRequest) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
 	}
 	return 0
 }
@@ -106,14 +114,17 @@ var File_example_proto protoreflect.FileDescriptor
 
 const file_example_proto_rawDesc = "" +
 	"\n" +
-	"\rexample.proto\x12\aexample\x1a\x1copenapi/v3/annotations.proto\"\xb4\x01\n" +
+	"\rexample.proto\x12\aexample\x1a\x1copenapi/v3/annotations.proto\"\xaa\x02\n" +
 	"\x0eExampleRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id:\x91\x01\xbaG\x8d\x01\xa2\x02\x1a\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\x03R\x06userId:\xee\x01\xbaG\xea\x01\xa2\x02\x1a\n" +
 	"\x0fx-resource-type\x12\a\x12\x05order\xa2\x02\x1b\n" +
-	"\x13x-resource-id-field\x12\x04\x12\x02id\xa2\x02\x14\n" +
-	"\bx-action\x12\b\x12\x06REMOVE\xa2\x02\x15\n" +
-	"\vx-self-hold\x12\x06\x12\x04true\xa2\x02 \n" +
-	"\x15x-resource-collection\x12\a\x12\x05false\"\xa4\x01\n" +
+	"\x13x-resource-id-field\x12\x04\x12\x02id\xa2\x02\x1d\n" +
+	"\x11x-resource-action\x12\b\x12\x06REMOVE\xa2\x02\x1e\n" +
+	"\x14x-resource-self-hold\x12\x06\x12\x04true\xa2\x02 \n" +
+	"\x15x-resource-collection\x12\a\x12\x05false\xa2\x02&\n" +
+	"\x19x-resource-owner-id-field\x12\t\x12\auser_id\xa2\x02\x1f\n" +
+	"\x15x-resource-owner-type\x12\x06\x12\x04user\"\xa4\x01\n" +
 	"\x0eMissingIdField:\x91\x01\xbaG\x8d\x01\xa2\x02\x1a\n" +
 	"\x0fx-resource-type\x12\a\x12\x05order\xa2\x02\x1b\n" +
 	"\x13x-resource-id-field\x12\x04\x12\x02id\xa2\x02\x14\n" +

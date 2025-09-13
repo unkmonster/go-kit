@@ -23,13 +23,13 @@ message ExampleRequest {
 				}
 			},
             {
-				name: "x-action"
+				name: "x-resource-action"
 				value: {
 					yaml: "REMOVE"
 				}
 			},
 			{
-				name: "x-self-hold"
+				name: "x-resource-self-hold"
 				value: {
 					yaml: "true"
 				}
@@ -39,11 +39,24 @@ message ExampleRequest {
 				value: {
 					yaml: "false"
 				}
+			},
+			{
+				name: "x-resource-owner-id-field"
+				value: {
+					yaml: "user_id"
+				}
+			},
+			{
+				name: "x-resource-owner-type"
+				value: {
+					yaml: "user"
+				}
 			}
 		]
   	};
 
     int64 id = 1;
+	int64 user_id = 2;
 }
 
 message MissingIdField {
