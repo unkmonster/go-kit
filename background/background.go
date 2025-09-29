@@ -6,7 +6,10 @@ import (
 	"sync"
 
 	"github.com/go-kratos/kratos/v2/log"
+	"github.com/go-kratos/kratos/v2/transport"
 )
+
+var _ transport.Server = (*Background)(nil)
 
 // 非线程安全的后台任务管理器
 // 多次调用 Launch/Close 行为是未定义的
@@ -22,6 +25,17 @@ func New(logger log.Logger) *Background {
 	return &Background{
 		log: log.NewHelper(log.With(logger, "module", "background")),
 	}
+}
+
+// Start implements transport.Server.
+func (bg *Background) Start(ctx context.Context) error {
+	bg.Launch(ctx)
+	return nil
+}
+
+// Stop implements transport.Server.
+func (bg *Background) Stop(ctx context.Context) error {
+	return bg.Close(ctx)
 }
 
 func (bg *Background) Add(f BackgroundFunc) {
@@ -57,7 +71,7 @@ func (bg *Background) forever(ctx context.Context, f BackgroundFunc) error {
 	return ctx.Err()
 }
 
-// Launch 启动所有已添加的后台任务
+// Launch 非阻塞的启动所有已添加的后台任务
 func (bg *Background) Launch(ctx context.Context) {
 	for _, task := range bg.tasks {
 		bg.wg.Add(1)
@@ -68,7 +82,7 @@ func (bg *Background) Launch(ctx context.Context) {
 	}
 }
 
-// Close 等待所有后台任务退出
+// Close 等待所有后台任务退出并返回
 func (bg *Background) Close(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
