@@ -35,6 +35,7 @@ func (bg *Background) Start(ctx context.Context) error {
 
 // Stop implements transport.Server.
 func (bg *Background) Stop(ctx context.Context) error {
+	bg.log.Warnf("[Background] stopping")
 	return bg.Close(ctx)
 }
 
