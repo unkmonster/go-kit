@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime/debug"
 	"sync"
+	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/go-kratos/kratos/v2/transport"
@@ -19,11 +20,14 @@ type Background struct {
 	tasks []BackgroundFunc
 	wg    sync.WaitGroup
 	log   *log.Helper
+	// 会在退出时 close 这个 channel
+	closed chan struct{}
 }
 
 func New(logger log.Logger) *Background {
 	return &Background{
-		log: log.NewHelper(log.With(logger, "module", "background")),
+		log:    log.NewHelper(log.With(logger, "module", "background")),
+		closed: make(chan struct{}),
 	}
 }
 
@@ -76,15 +80,22 @@ func (bg *Background) forever(ctx context.Context, f BackgroundFunc) error {
 func (bg *Background) Launch(ctx context.Context) {
 	for _, task := range bg.tasks {
 		bg.wg.Add(1)
-		go func(task BackgroundFunc) {
+		go func(ctx context.Context, task BackgroundFunc) {
 			defer bg.wg.Done()
+			ctx = NewContextWithClosed(ctx, bg.closed)
 			bg.forever(ctx, task)
-		}(task)
+		}(ctx, task)
 	}
 }
 
 // Close 等待所有后台任务退出并返回
 func (bg *Background) Close(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
+	defer cancel()
+
+	// 通知所有任务退出
+	close(bg.closed)
+
 	done := make(chan struct{})
 	go func() {
 		bg.wg.Wait()
@@ -104,3 +115,14 @@ func (bg *Background) SetLogger(logger log.Logger) {
 }
 
 var Default *Background = New(log.DefaultLogger)
+
+type closedKey struct{}
+
+func NewContextWithClosed(ctx context.Context, closed chan struct{}) context.Context {
+	return context.WithValue(ctx, closedKey{}, closed)
+}
+
+func ClosedFromContext(ctx context.Context) (closed chan struct{}, ok bool) {
+	closed, ok = ctx.Value(closedKey{}).(chan struct{})
+	return
+}
