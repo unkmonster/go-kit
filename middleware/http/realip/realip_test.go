@@ -1,10 +1,17 @@
 package realip
 
 import (
+	"context"
+	"fmt"
 	"net"
+	"net/http"
 	"strconv"
 	"testing"
 
+	"github.com/go-kratos/kratos/v2/log"
+	"github.com/go-kratos/kratos/v2/middleware"
+	"github.com/go-kratos/kratos/v2/transport"
+	khttp "github.com/go-kratos/kratos/v2/transport/http"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,6 +29,7 @@ func TestParseProxy(t *testing.T) {
 		proxy   string
 		contain string
 	}{
+		// 特殊用例
 		{
 			proxy: "localhost",
 		},
@@ -36,6 +44,10 @@ func TestParseProxy(t *testing.T) {
 		{
 			proxy:   "127.0.0.1",
 			contain: "127.0.0.1",
+		},
+		{
+			proxy:   "192.168.0.0/16",
+			contain: "192.168.0.100",
 		},
 	}
 
@@ -60,14 +72,14 @@ func TestParseProxy(t *testing.T) {
 
 			ip := net.ParseIP(test.contain)
 			if ip == nil {
-				panic("input contain is invalid ip")
+				panic(fmt.Sprintf("input contain is invalid ip: %s", test.contain))
 			}
 			require.True(t, anyContain(result, ip))
 		})
 	}
 }
 
-func TestGetClientIp(t *testing.T) {
+func TestGetClientIP(t *testing.T) {
 	tests := []struct {
 		trusted []string
 		value   string
@@ -75,18 +87,18 @@ func TestGetClientIp(t *testing.T) {
 	}{
 		{
 			trusted: []string{"127.0.0.1"},
-			value:   "127.0.0.1",
-			result:  "127.0.0.1",
+			value:   "1.1.1.1,2.2.2.2,127.0.0.1",
+			result:  "2.2.2.2",
 		},
 		{
 			trusted: []string{"127.0.0.1"},
-			value:   "1.1.1.1,127.0.0.1",
-			result:  "1.1.1.1",
+			value:   "127.0.0.1",
+			result:  "", // 由于全部为可信地址，结果为空
 		},
 		{
-			trusted: []string{}, // 全部可信
+			trusted: []string{"0.0.0.0/0"}, // 全部可信
 			value:   "5.5.5.5,1.1.1.1,127.0.0.1",
-			result:  "5.5.5.5",
+			result:  "",
 		},
 	}
 
@@ -99,4 +111,169 @@ func TestGetClientIp(t *testing.T) {
 			require.Equal(t, test.result, result)
 		})
 	}
+}
+
+var _ khttp.Transporter = (*transpoter)(nil)
+
+type transpoter struct {
+	request *khttp.Request
+}
+
+// Endpoint implements http.Transporter.
+func (t *transpoter) Endpoint() string {
+	panic("unimplemented")
+}
+
+// Kind implements http.Transporter.
+func (t *transpoter) Kind() transport.Kind {
+	panic("unimplemented")
+}
+
+// Operation implements http.Transporter.
+func (t *transpoter) Operation() string {
+	panic("unimplemented")
+}
+
+// PathTemplate implements http.Transporter.
+func (t *transpoter) PathTemplate() string {
+	panic("unimplemented")
+}
+
+// ReplyHeader implements http.Transporter.
+func (t *transpoter) ReplyHeader() transport.Header {
+	panic("unimplemented")
+}
+
+// Request implements http.Transporter.
+func (t *transpoter) Request() *khttp.Request {
+	return t.request
+}
+
+// RequestHeader implements http.Transporter.
+func (t *transpoter) RequestHeader() transport.Header {
+	panic("unimplemented")
+}
+
+func TestRealIP(t *testing.T) {
+	tests := []struct {
+		trustedProxies []string
+		ipHeaders      []string
+		trustedHeader  string
+
+		remoteAddr string
+		headers    http.Header
+		expect     string
+	}{
+		// 下游属于可信代理，从 xff 提取 2.2.2.2 作为结果
+		{
+			trustedProxies: []string{
+				"192.168.0.0/16",
+			},
+			ipHeaders: []string{
+				"X-Forwarded-For",
+			},
+			trustedHeader: "",
+			remoteAddr:    "192.168.0.1:5000",
+			headers: map[string][]string{
+				"X-Forwarded-For": {"1.1.1.1,2.2.2.2"},
+			},
+			expect: "2.2.2.2",
+		},
+		// 同上，但下游不属于可信代理，使用 remoteAddr 作为结果
+		{
+			trustedProxies: []string{
+				"192.168.0.0/16",
+			},
+			ipHeaders: []string{
+				"X-Forwarded-For",
+			},
+			trustedHeader: "",
+			remoteAddr:    "10.0.0.0:5000",
+			headers: map[string][]string{
+				"X-Forwarded-For": {"1.1.1.1,2.2.2.2"},
+			},
+			expect: "10.0.0.0",
+		},
+		// 同上，但 trusted_header 被指定，优先从此头部获取结果
+		{
+			trustedProxies: []string{
+				"192.168.0.0/16",
+			},
+			ipHeaders: []string{
+				"X-Forwarded-For",
+			},
+			trustedHeader: "Cf-Connecting-IP",
+			remoteAddr:    "192.168.0.1:5000",
+			headers: map[string][]string{
+				"X-Forwarded-For":  {"1.1.1.1,2.2.2.2"},
+				"Cf-Connecting-Ip": {"8.8.8.8"},
+			},
+			expect: "8.8.8.8",
+		},
+		// 同第一个例子，但下游和 2.2.2.2 同时属于可信代理，使用 2.2.2.2 左边的 IP 作为结果
+		{
+			trustedProxies: []string{
+				"192.168.0.0/16",
+				"2.2.2.2",
+			},
+			ipHeaders: []string{
+				"X-Forwarded-For",
+			},
+			trustedHeader: "",
+			remoteAddr:    "192.168.0.1:5000",
+			headers: map[string][]string{
+				"X-Forwarded-For": {"1.1.1.1,2.2.2.2"},
+			},
+			expect: "1.1.1.1",
+		},
+		// 同首个例子，但制定了可信标头，可是由于请求中缺少可信标头，结果不变
+		{
+			trustedProxies: []string{
+				"192.168.0.0/16",
+			},
+			ipHeaders: []string{
+				"X-Forwarded-For",
+			},
+			trustedHeader: "Cf-Connecting-Ip",
+			remoteAddr:    "192.168.0.1:5000",
+			headers: map[string][]string{
+				"X-Forwarded-For": {"1.1.1.1,2.2.2.2"},
+			},
+			expect: "2.2.2.2",
+		},
+	}
+
+	for i, test := range tests {
+		t.Run(strconv.FormatInt(int64(i), 10), func(t *testing.T) {
+			m := Server(
+				log.DefaultLogger,
+				WithTrustedProxies(test.trustedProxies),
+				WithIpHeaders(test.ipHeaders),
+				WithTrustedHeader(test.trustedHeader),
+			)
+
+			var next middleware.Handler = func(ctx context.Context, req any) (any, error) {
+
+				val, ok := FromContext(ctx)
+				if test.expect == "" {
+					require.False(t, ok)
+					return nil, nil
+				}
+
+				require.Equal(t, test.expect, val)
+				return nil, nil
+			}
+
+			ctx := context.Background()
+
+			req := &http.Request{
+				RemoteAddr: test.remoteAddr,
+				Header:     test.headers,
+			}
+			ctx = transport.NewServerContext(ctx, &transpoter{request: req})
+			_, err := m(next)(ctx, nil)
+			require.NoError(t, err)
+		})
+	}
+
 }

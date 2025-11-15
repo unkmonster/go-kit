@@ -9,11 +9,11 @@ import (
 	"github.com/go-kratos/kratos/v2/errors"
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/go-kratos/kratos/v2/middleware"
+	"github.com/go-kratos/kratos/v2/transport"
 	"github.com/go-kratos/kratos/v2/transport/http"
 )
 
 var (
-	ErrWrongContext      = errors.InternalServer("INTERNAL", "wrong context")
 	ErrInvalidRemoteAddr = errors.BadRequest("INVALID_REMOTE_ADDR", "invalid remote address")
 )
 
@@ -30,11 +30,11 @@ type options struct {
 
 type Option func(opts *options)
 
-// parseProxy parse a host name/ip addr/cidr to *net.IPNet
+// parseProxy parse a hostname/ipAddr/cidr to *net.IPNet
 func parseProxy(proxy string) ([]*net.IPNet, error) {
 	cidrStrList := []string{}
 
-	// 解析 IP / host
+	// 解析 IP/hostname 为 CIDR
 	if !strings.Contains(proxy, "/") {
 		ips := []net.IP{}
 		ip := net.ParseIP(proxy)
@@ -42,9 +42,9 @@ func parseProxy(proxy string) ([]*net.IPNet, error) {
 			// 尝试处理主机名
 			result, err := net.LookupIP(proxy)
 			if err != nil || len(result) == 0 {
-				return nil, fmt.Errorf("invalid ip/host: %s", proxy)
+				return nil, fmt.Errorf("invalid hostname: %v, %s", err, proxy)
 			}
-			ips = result
+			ips = append(ips, result...)
 		} else {
 			ips = append(ips, ip)
 		}
@@ -74,11 +74,8 @@ func parseProxy(proxy string) ([]*net.IPNet, error) {
 	return result, nil
 }
 
+// isTrustedProxy check is ip a trusted proxy
 func isTrustedProxy(options *options, ip net.IP) bool {
-	if len(options.TrustedProxies) == 0 {
-		return true
-	}
-
 	for _, proxy := range options.TrustedProxies {
 		if proxy.Contains(ip) {
 			return true
@@ -87,22 +84,21 @@ func isTrustedProxy(options *options, ip net.IP) bool {
 	return false
 }
 
-// getClientIp 反向顺序验证 ip 头，
+// getClientIp 反向顺序验证 ip 头
 // 返回 ip header 中从右往左第一个不信任的 IP 作为 client IP
 func getClientIp(options *options, value string) string {
 	if value == "" {
 		return ""
 	}
 
-	var result string
 	ips := strings.Split(value, ",")
 	for i := len(ips) - 1; i >= 0; i-- {
-		result = strings.TrimSpace(ips[i])
-		if !isTrustedProxy(options, net.ParseIP(result)) {
-			break
+		ipStr := strings.TrimSpace(ips[i])
+		if !isTrustedProxy(options, net.ParseIP(ipStr)) {
+			return ipStr
 		}
 	}
-	return result
+	return ""
 }
 
 func WithTrustedHeader(header string) Option {
@@ -118,7 +114,7 @@ func WithTrustedProxies(proxies []string) Option {
 		for _, proxy := range proxies {
 			cidr, err := parseProxy(proxy)
 			if err != nil {
-				panic(fmt.Sprintf("parse proxy error: %s: %v", proxy, err))
+				panic(fmt.Sprintf("parse proxy %q: %v", proxy, err))
 			}
 			results = append(results, cidr...)
 		}
@@ -151,40 +147,52 @@ func Server(logger log.Logger, opts ...Option) middleware.Middleware {
 
 	return func(h middleware.Handler) middleware.Handler {
 		return func(ctx context.Context, req any) (any, error) {
-			if httpreq, ok := http.RequestFromServerContext(ctx); ok {
-				if options.TrustedHeader != "" {
-					value := httpreq.Header.Get(options.TrustedHeader)
-					if net.ParseIP(value) != nil {
+			tr, ok := transport.FromServerContext(ctx)
+			if !ok {
+				return nil, fmt.Errorf("missing Transpoter in context")
+			}
+			htr, ok := tr.(http.Transporter)
+			if !ok {
+				return nil, fmt.Errorf("'Transpoter' in context must be 'http.Transpoter', not be %T", tr)
+			}
+			request := htr.Request()
+
+			// 如果制定了 TrustedHeader, 尝试从中获取客户端 IP
+			if options.TrustedHeader != "" {
+				value := request.Header.Get(options.TrustedHeader)
+				if net.ParseIP(value) != nil {
+					ctx = context.WithValue(ctx, realIpKey{}, value)
+					return h(ctx, req)
+				}
+			}
+
+			remoteIpStr, _, err := net.SplitHostPort(request.RemoteAddr)
+			if err != nil {
+				return nil, ErrInvalidRemoteAddr.WithCause(err).WithMetadata(map[string]string{
+					"remote_addr": request.RemoteAddr,
+				})
+			}
+			remoteIp := net.ParseIP(remoteIpStr)
+			if remoteIp == nil {
+				return nil, ErrInvalidRemoteAddr.WithMetadata(map[string]string{
+					"remote_addr": request.RemoteAddr,
+				})
+			}
+
+			// 如果下游属于可信代理，尝试从 xff 头获取 client ip
+			if isTrustedProxy(options, remoteIp) {
+				for _, headerName := range options.IpHeaders {
+					value := getClientIp(options, request.Header.Get(headerName))
+					if value != "" {
 						ctx = context.WithValue(ctx, realIpKey{}, value)
 						return h(ctx, req)
 					}
 				}
-
-				remoteIpStr, _, err := net.SplitHostPort(httpreq.RemoteAddr)
-				if err != nil {
-					log.NewHelper(logger).Warnf("failed to split remote addr host:port: %w", err)
-					return nil, ErrInvalidRemoteAddr
-				}
-				remoteIp := net.ParseIP(remoteIpStr)
-				if remoteIp == nil {
-					return nil, ErrInvalidRemoteAddr
-				}
-
-				// 如果下游属于可信代理，尝试从 xff 头获取 client ip
-				if isTrustedProxy(options, remoteIp) {
-					for _, headerName := range options.IpHeaders {
-						value := getClientIp(options, httpreq.Header.Get(headerName))
-						if value != "" {
-							ctx = context.WithValue(ctx, realIpKey{}, value)
-							return h(ctx, req)
-						}
-					}
-				}
-
-				ctx = context.WithValue(ctx, realIpKey{}, remoteIpStr)
-				return h(ctx, req)
 			}
-			return nil, ErrWrongContext
+
+			// 否则使用 remote IP 作为 RealIP
+			ctx = context.WithValue(ctx, realIpKey{}, remoteIpStr)
+			return h(ctx, req)
 		}
 	}
 }
