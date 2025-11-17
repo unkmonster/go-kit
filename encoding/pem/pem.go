@@ -1,4 +1,3 @@
-// Deprecated: move to encoding/pem
 package pem
 
 import (
