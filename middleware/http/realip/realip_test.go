@@ -104,10 +104,12 @@ func TestGetClientIP(t *testing.T) {
 
 	for i, test := range tests {
 		t.Run(strconv.FormatInt(int64(i), 10), func(t *testing.T) {
-			opt := &options{}
+			opt := &options{
+				Recusive: true,
+			}
 			WithTrustedProxies(test.trusted)(opt)
 
-			result := getClientIp(opt, test.value)
+			result := parseXff(opt, test.value)
 			require.Equal(t, test.result, result)
 		})
 	}
@@ -159,12 +161,13 @@ func TestRealIP(t *testing.T) {
 		trustedProxies []string
 		ipHeaders      []string
 		trustedHeader  string
+		recusive       bool
 
 		remoteAddr string
 		headers    http.Header
 		expect     string
 	}{
-		// 下游属于可信代理，从 xff 提取 2.2.2.2 作为结果
+		// 下游属于可信代理，从 xff 提取逆序的第一个 IP 作为结果
 		{
 			trustedProxies: []string{
 				"192.168.0.0/16",
@@ -173,7 +176,9 @@ func TestRealIP(t *testing.T) {
 				"X-Forwarded-For",
 			},
 			trustedHeader: "",
-			remoteAddr:    "192.168.0.1:5000",
+			recusive:      true,
+
+			remoteAddr: "192.168.0.1:5000",
 			headers: map[string][]string{
 				"X-Forwarded-For": {"1.1.1.1,2.2.2.2"},
 			},
@@ -188,7 +193,9 @@ func TestRealIP(t *testing.T) {
 				"X-Forwarded-For",
 			},
 			trustedHeader: "",
-			remoteAddr:    "10.0.0.0:5000",
+			recusive:      true,
+
+			remoteAddr: "10.0.0.0:5000",
 			headers: map[string][]string{
 				"X-Forwarded-For": {"1.1.1.1,2.2.2.2"},
 			},
@@ -203,7 +210,9 @@ func TestRealIP(t *testing.T) {
 				"X-Forwarded-For",
 			},
 			trustedHeader: "Cf-Connecting-IP",
-			remoteAddr:    "192.168.0.1:5000",
+			recusive:      true,
+
+			remoteAddr: "192.168.0.1:5000",
 			headers: map[string][]string{
 				"X-Forwarded-For":  {"1.1.1.1,2.2.2.2"},
 				"Cf-Connecting-Ip": {"8.8.8.8"},
@@ -220,7 +229,9 @@ func TestRealIP(t *testing.T) {
 				"X-Forwarded-For",
 			},
 			trustedHeader: "",
-			remoteAddr:    "192.168.0.1:5000",
+			recusive:      true,
+
+			remoteAddr: "192.168.0.1:5000",
 			headers: map[string][]string{
 				"X-Forwarded-For": {"1.1.1.1,2.2.2.2"},
 			},
@@ -235,7 +246,27 @@ func TestRealIP(t *testing.T) {
 				"X-Forwarded-For",
 			},
 			trustedHeader: "Cf-Connecting-Ip",
-			remoteAddr:    "192.168.0.1:5000",
+			recusive:      true,
+
+			remoteAddr: "192.168.0.1:5000",
+			headers: map[string][]string{
+				"X-Forwarded-For": {"1.1.1.1,2.2.2.2"},
+			},
+			expect: "2.2.2.2",
+		},
+		// 未开启递归模式，但下游属于可信代理，简单的使用 xff 头中逆序的第一个 IP 作为结果，无论其是否属于受信任代理
+		{
+			trustedProxies: []string{
+				"192.168.0.0/16",
+				"2.2.2.2",
+			},
+			ipHeaders: []string{
+				"X-Forwarded-For",
+			},
+			trustedHeader: "",
+			recusive:      false,
+
+			remoteAddr: "192.168.0.1:5000",
 			headers: map[string][]string{
 				"X-Forwarded-For": {"1.1.1.1,2.2.2.2"},
 			},
@@ -250,6 +281,7 @@ func TestRealIP(t *testing.T) {
 				WithTrustedProxies(test.trustedProxies),
 				WithIpHeaders(test.ipHeaders),
 				WithTrustedHeader(test.trustedHeader),
+				WithRecusive(test.recusive),
 			)
 
 			var next middleware.Handler = func(ctx context.Context, req any) (any, error) {

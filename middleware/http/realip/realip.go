@@ -26,6 +26,10 @@ type options struct {
 	TrustedHeader string
 	// xff headers
 	IpHeaders []string
+	// 指定 xff 头的解析模式
+	// 如果不启用递归，简单的使用 xff 头的最后一个 IP 作为客户端 IP
+	// 否则，反向验证 xff 头中的 IP，使用找到的第一个不可信 IP 作为客户端 IP
+	Recusive bool
 }
 
 type Option func(opts *options)
@@ -84,14 +88,18 @@ func isTrustedProxy(options *options, ip net.IP) bool {
 	return false
 }
 
-// getClientIp 反向顺序验证 ip 头
+// parseXff 反向顺序验证 ip 头
 // 返回 ip header 中从右往左第一个不信任的 IP 作为 client IP
-func getClientIp(options *options, value string) string {
+func parseXff(options *options, value string) string {
 	if value == "" {
 		return ""
 	}
 
 	ips := strings.Split(value, ",")
+	if !options.Recusive && len(ips) > 0 {
+		return ips[len(ips)-1]
+	}
+
 	for i := len(ips) - 1; i >= 0; i-- {
 		ipStr := strings.TrimSpace(ips[i])
 		if !isTrustedProxy(options, net.ParseIP(ipStr)) {
@@ -107,7 +115,7 @@ func WithTrustedHeader(header string) Option {
 	}
 }
 
-// WithTrustedProxies 支持 IP, CIDR, 如果不指定此选项表示信任所有下游
+// WithTrustedProxies 支持 IP, CIDR
 func WithTrustedProxies(proxies []string) Option {
 	return func(opts *options) {
 		results := []*net.IPNet{}
@@ -128,6 +136,12 @@ func WithIpHeaders(headers []string) Option {
 	}
 }
 
+func WithRecusive(enable bool) Option {
+	return func(opts *options) {
+		opts.Recusive = enable
+	}
+}
+
 // Server 服务侧中间件，从 http.request 中获取客户端 IP, 并存入上下文
 // 解析顺序：
 // 1. 首先尝试从 TrustedHeader 获取
@@ -140,6 +154,7 @@ func Server(logger log.Logger, opts ...Option) middleware.Middleware {
 			"X-Real-IP",
 			"X-Forwarded-For",
 		},
+		Recusive: true,
 	}
 	for _, opt := range opts {
 		opt(options)
@@ -161,7 +176,7 @@ func Server(logger log.Logger, opts ...Option) middleware.Middleware {
 			if options.TrustedHeader != "" {
 				value := request.Header.Get(options.TrustedHeader)
 				if net.ParseIP(value) != nil {
-					ctx = context.WithValue(ctx, realIpKey{}, value)
+					ctx = NewContext(ctx, value)
 					return h(ctx, req)
 				}
 			}
@@ -182,16 +197,16 @@ func Server(logger log.Logger, opts ...Option) middleware.Middleware {
 			// 如果下游属于可信代理，尝试从 xff 头获取 client ip
 			if isTrustedProxy(options, remoteIp) {
 				for _, headerName := range options.IpHeaders {
-					value := getClientIp(options, request.Header.Get(headerName))
+					value := parseXff(options, request.Header.Get(headerName))
 					if value != "" {
-						ctx = context.WithValue(ctx, realIpKey{}, value)
+						ctx = NewContext(ctx, value)
 						return h(ctx, req)
 					}
 				}
 			}
 
 			// 否则使用 remote IP 作为 RealIP
-			ctx = context.WithValue(ctx, realIpKey{}, remoteIpStr)
+			ctx = NewContext(ctx, remoteIpStr)
 			return h(ctx, req)
 		}
 	}
@@ -200,4 +215,8 @@ func Server(logger log.Logger, opts ...Option) middleware.Middleware {
 func FromContext(ctx context.Context) (val string, ok bool) {
 	val, ok = ctx.Value(realIpKey{}).(string)
 	return
+}
+
+func NewContext(ctx context.Context, val string) context.Context {
+	return context.WithValue(ctx, realIpKey{}, val)
 }
