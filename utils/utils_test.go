@@ -7,6 +7,11 @@ import (
 )
 
 func TestCallerName(t *testing.T) {
-	caller := callerName(1)
+	caller := CallerName()
 	require.Contains(t, caller, "TestCallerName")
+}
+
+func TestShortCallerName(t *testing.T) {
+	name := ShortCallerName()
+	require.Equal(t, "utils.TestShortCallerName", name)
 }
