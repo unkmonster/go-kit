@@ -1,5 +1,8 @@
 package query
 
+type Pagination Model
+
+// Deprecated use Pagination instead
 type Model struct {
 	Offset int32
 	Limit  int32
