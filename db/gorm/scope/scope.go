@@ -1,3 +1,4 @@
+// Deprecated: deprecated
 package scope
 
 import "gorm.io/gorm"
